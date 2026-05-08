@@ -1,39 +1,40 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 
-const dbPath = process.env.NODE_ENV === 'production' 
-  ? '/tmp/taskflow.db' 
-  : path.join(__dirname, '../../taskflow.db');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-const db = new sqlite3.Database(dbPath);
+const db = {
+  run: (sql, params = []) => pool.query(sql, params),
+  get: (sql, params = []) => pool.query(sql, params).then(r => r.rows[0]),
+  all: (sql, params = []) => pool.query(sql, params).then(r => r.rows),
+};
 
-db.serialize(() => {
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+const init = async () => {
+  await pool.query(`CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     role TEXT DEFAULT 'member',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  await pool.query(`CREATE TABLE IF NOT EXISTS projects (
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
     owner_id INTEGER REFERENCES users(id),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS project_members (
+  await pool.query(`CREATE TABLE IF NOT EXISTS project_members (
     project_id INTEGER REFERENCES projects(id),
     user_id INTEGER REFERENCES users(id),
     role TEXT DEFAULT 'member',
     PRIMARY KEY (project_id, user_id)
   )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+  await pool.query(`CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT,
     status TEXT DEFAULT 'todo',
@@ -41,8 +42,11 @@ db.serialize(() => {
     project_id INTEGER REFERENCES projects(id),
     assignee_id INTEGER REFERENCES users(id),
     due_date TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
-});
+  console.log('Database initialized');
+};
+
+init().catch(console.error);
 
 module.exports = db;

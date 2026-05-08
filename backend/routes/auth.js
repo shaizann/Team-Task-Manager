@@ -10,28 +10,26 @@ router.post('/signup', async (req, res) => {
   try {
     const hash = await bcrypt.hash(password, 10);
     const userRole = role === 'admin' ? 'admin' : 'member';
-    db.run(
-      'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-      [name, email, hash, userRole],
-      function(err) {
-        if (err) return res.status(400).json({ error: 'Email already exists' });
-        const token = jwt.sign(
-          { id: this.lastID, role: userRole },
-          process.env.JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-        res.json({ token, user: { id: this.lastID, name, email, role: userRole } });
-      }
+    const result = await db.get(
+      'INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id',
+      [name, email, hash, userRole]
     );
+    const token = jwt.sign(
+      { id: result.id, role: userRole },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    res.json({ token, user: { id: result.id, name, email, role: userRole } });
   } catch (e) {
-    res.status(500).json({ error: 'Server error' });
+    res.status(400).json({ error: 'Email already exists' });
   }
 });
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-    if (err || !user) return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const user = await db.get('SELECT * FROM users WHERE email = $1', [email]);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign(
@@ -40,7 +38,9 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
-  });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 module.exports = router;
