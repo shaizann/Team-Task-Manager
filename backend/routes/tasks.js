@@ -4,23 +4,29 @@ const auth = require('../middleware/auth');
 const isAdmin = require('../middleware/isAdmin');
 
 router.get('/project/:projectId', auth, (req, res) => {
-  const tasks = db.prepare(`
+  db.all(`
     SELECT t.*, u.name as assignee_name FROM tasks t
     LEFT JOIN users u ON t.assignee_id = u.id
     WHERE t.project_id = ?
-  `).all(req.params.projectId);
-  res.json(tasks);
+  `, [req.params.projectId], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'Server error' });
+    res.json(rows);
+  });
 });
 
 router.post('/', auth, isAdmin, (req, res) => {
   const { title, description, project_id, assignee_id, due_date, priority } = req.body;
   if (!title || !project_id)
     return res.status(400).json({ error: 'Title and project required' });
-  const result = db.prepare(`
+  db.run(`
     INSERT INTO tasks (title, description, project_id, assignee_id, due_date, priority)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(title, description, project_id, assignee_id, due_date, priority || 'medium');
-  res.json({ id: result.lastInsertRowid, title });
+  `, [title, description, project_id, assignee_id, due_date, priority || 'medium'],
+    function(err) {
+      if (err) return res.status(500).json({ error: 'Server error' });
+      res.json({ id: this.lastID, title });
+    }
+  );
 });
 
 router.put('/:id/status', auth, (req, res) => {
@@ -28,22 +34,28 @@ router.put('/:id/status', auth, (req, res) => {
   const validStatuses = ['todo', 'in_progress', 'done'];
   if (!validStatuses.includes(status))
     return res.status(400).json({ error: 'Invalid status' });
-  db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, req.params.id);
-  res.json({ message: 'Status updated' });
+  db.run('UPDATE tasks SET status = ? WHERE id = ?', [status, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: 'Server error' });
+    res.json({ message: 'Status updated' });
+  });
 });
 
 router.put('/:id', auth, isAdmin, (req, res) => {
   const { title, description, assignee_id, due_date, priority, status } = req.body;
-  db.prepare(`
+  db.run(`
     UPDATE tasks SET title=?, description=?, assignee_id=?, due_date=?, priority=?, status=?
     WHERE id=?
-  `).run(title, description, assignee_id, due_date, priority, status, req.params.id);
-  res.json({ message: 'Task updated' });
+  `, [title, description, assignee_id, due_date, priority, status, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: 'Server error' });
+    res.json({ message: 'Task updated' });
+  });
 });
 
 router.delete('/:id', auth, isAdmin, (req, res) => {
-  db.prepare('DELETE FROM tasks WHERE id = ?').run(req.params.id);
-  res.json({ message: 'Task deleted' });
+  db.run('DELETE FROM tasks WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: 'Server error' });
+    res.json({ message: 'Task deleted' });
+  });
 });
 
 module.exports = router;
